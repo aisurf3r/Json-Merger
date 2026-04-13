@@ -4,6 +4,11 @@
 
 Herramienta de escritorio para combinar múltiples archivos JSON, filtrar registros por condiciones, eliminar duplicados y exportar a CSV — todo desde una interfaz visual.
 
+<img width="560" height="451" alt="{498C2555-54B0-4B29-ACB4-7317EAA8FD6B}" src="https://github.com/user-attachments/assets/11c0c71e-bbd3-46f3-87e9-500e03c9ef7b" />
+<img width="1920" height="1080" alt="{24E12D04-E2C6-4777-95D0-A33AB1ADA3BB}" src="https://github.com/user-attachments/assets/b7726f20-4e37-4388-a5d5-e0821b62960c" />
+<img width="532" height="488" alt="{15F4A884-5E00-4E5F-9DB3-2823FF6AABB3}" src="https://github.com/user-attachments/assets/7e75ef69-36e9-4f88-8cfc-7d41eb230fa9" />
+<img width="512" height="489" alt="{54E17E31-D854-45B6-9384-7C8143B931EA}" src="https://github.com/user-attachments/assets/70e317a6-8556-4079-bf06-1842a7d304f6" />
+
 ---
 
 ## Índice
@@ -39,13 +44,11 @@ pip install customtkinter pyperclip
 
 ## Carga de archivos
 
-Hay tres formas de cargar archivos:
+Hay 2res formas de cargar archivos:
 
 **Seleccionar Archivos** — abre el explorador y permite elegir uno o varios `.json` a la vez. También acepta cualquier otro formato de texto que contenga JSON válido.
 
 **Cargar Carpeta** — carga automáticamente todos los `.json` que encuentre en la carpeta elegida, sin límite de cantidad.
-
-**Arrastrar y soltar** — no disponible en esta versión.
 
 ### Indicadores de estado en la lista
 
