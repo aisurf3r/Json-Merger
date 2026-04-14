@@ -1114,11 +1114,11 @@ class JSONMergerApp(ctk.CTk):
         hdr.pack(pady=12, padx=55, fill="x")
 
         self.info_label = ctk.CTkLabel(
-            hdr, text="Archivos cargados: 0 | Tamanio total: 0.00 KB",
+            hdr, text="Archivos cargados: 0 | Tamaño total: 0.00 KB",
             font=ctk.CTkFont(size=14))
         self.info_label.pack(side="left", pady=8)
         tip(self.info_label,
-            "Numero de archivos JSON en la lista\ny su tamanio combinado en disco.")
+            "Numero de archivos JSON en la lista\ny su tamaño combinado en disco.")
 
         self.about_btn = ctk.CTkButton(
             hdr, text="ℹ",
@@ -1172,10 +1172,10 @@ class JSONMergerApp(ctk.CTk):
 
         self.sort_var = ctk.StringVar(value="Alfabeticamente")
         ss = ctk.CTkSegmentedButton(sf,
-            values=["Alfabeticamente", "Por Fecha", "Por Tamanio"],
+            values=["Alfabeticamente", "Por Fecha", "Por Tamaño"],
             variable=self.sort_var, command=self.sort_list, height=36)
         ss.pack(side="left", padx=8)
-        tip(ss, "Alfabeticamente -> A-Z.\nPor Fecha -> mas reciente primero.\nPor Tamanio -> mas grande primero.")
+        tip(ss, "Alfabeticamente -> A-Z.\nPor Fecha -> mas reciente primero.\nPor Tamaño -> mas grande primero.")
 
         # ── Lista de archivos ─────────────────────────────────────
         ll = ctk.CTkLabel(self, text="Archivos cargados:", font=ctk.CTkFont(size=14))
@@ -1205,7 +1205,7 @@ class JSONMergerApp(ctk.CTk):
         self.stats_label.pack(anchor="w", padx=60, pady=6)
         tip(self.stats_label,
             "Informacion del archivo seleccionado:\n"
-            "tipo, numero de elementos y tamanio en disco.")
+            "tipo, numero de elementos y tamaño en disco.")
 
         # ── Modo de union ─────────────────────────────────────────
         opt = ctk.CTkFrame(self)
@@ -1465,7 +1465,7 @@ class JSONMergerApp(ctk.CTk):
     def _update_header(self):
         if not self.files:
             self.info_label.configure(
-                text="Archivos cargados: 0 | Tamanio total: 0.00 KB")
+                text="Archivos cargados: 0 | Tamaño total: 0.00 KB")
             return
         total_kb = sum(
             os.path.getsize(f) for f in self.files
@@ -1476,7 +1476,7 @@ class JSONMergerApp(ctk.CTk):
         else:
             extra = ""
         self.info_label.configure(
-            text=f"Archivos cargados: {len(self.files)} | Tamanio total: {total_kb:.2f} KB{extra}")
+            text=f"Archivos cargados: {len(self.files)} | Tamaño total: {total_kb:.2f} KB{extra}")
 
     def sort_list(self, choice):
         if not self.files:
@@ -1485,7 +1485,7 @@ class JSONMergerApp(ctk.CTk):
             self.files.sort(key=lambda x: os.path.basename(x).lower())
         elif choice == "Por Fecha":
             self.files.sort(key=os.path.getmtime, reverse=True)
-        elif choice == "Por Tamanio":
+        elif choice == "Por Tamaño":
             self.files.sort(key=os.path.getsize,  reverse=True)
         self.update_list()
 
