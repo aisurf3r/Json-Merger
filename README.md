@@ -429,4 +429,4 @@ Se ignoran con un aviso previo. La app pregunta si quieres continuar con los arc
 
 ## Créditos
 
-Desarrollado por [Aisurf3r](https://github.com/aisurf3r/Json-Merger) · v1.0
+Desarrollado con ❤️ por [Aisurf3r](https://github.com/aisurf3r/Json-Merger) · v1.0
