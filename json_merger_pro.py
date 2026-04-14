@@ -428,14 +428,30 @@ class DeduplicateWindow(ctk.CTkToplevel):
         state = "normal" if self.mode_var.get() == "key" and self.keys else "disabled"
         self.key_combo.configure(state=state)
 
+    def _safe_hash(self, item) -> str:
+        """
+        Genera una clave de hash robusta para cualquier valor JSON.
+        - Dicts y listas: json.dumps con sort_keys para orden canónico.
+        - Primitivos (str, int, float, bool, None): json.dumps sin sort_keys
+          (más rápido, no hay claves que ordenar).
+        - Tipos no serializables (rarísimo en JSONs reales): repr() + type()
+          para evitar colisiones entre tipos distintos con el mismo repr.
+        """
+        try:
+            if isinstance(item, (dict, list)):
+                return json.dumps(item, sort_keys=True, ensure_ascii=False)
+            else:
+                return json.dumps(item, ensure_ascii=False)
+        except (TypeError, ValueError):
+            # Fallback: incluye el tipo para evitar colisiones (ej: 1 vs "1")
+            return repr(item) + str(type(item))
+
     def _deduplicate(self):
         if self.mode_var.get() == "exact":
-            seen, out = set(), []
+            seen = set()
+            out  = []
             for item in self.data:
-                try:
-                    k = json.dumps(item, sort_keys=True, ensure_ascii=False)
-                except (TypeError, ValueError):
-                    k = str(item)
+                k = self._safe_hash(item)
                 if k not in seen:
                     seen.add(k)
                     out.append(item)
@@ -446,19 +462,18 @@ class DeduplicateWindow(ctk.CTkToplevel):
                 messagebox.showwarning("Sin clave",
                     "Selecciona una clave valida para deduplicar.")
                 return None
-            seen, out, missing_key_items = set(), [], []
+            seen              = set()
+            out               = []
+            missing_key_items = []
             for item in self.data:
                 if not isinstance(item, dict) or field not in item:
                     missing_key_items.append(item)
                     continue
-                val = item[field]
-                try:
-                    val_key = json.dumps(val, sort_keys=True, ensure_ascii=False)
-                except (TypeError, ValueError):
-                    val_key = str(val)
+                val_key = self._safe_hash(item[field])
                 if val_key not in seen:
                     seen.add(val_key)
                     out.append(item)
+            # Los registros sin la clave se añaden al final (comportamiento documentado)
             out.extend(missing_key_items)
             return out
 
@@ -496,7 +511,7 @@ class FilterWindow(ctk.CTkToplevel):
     def __init__(self, parent, data: list):
         super().__init__(parent)
         self.title("Filtrar Registros")
-        self.geometry("510x460")
+        self.geometry("510x490")
         self.resizable(False, False)
         self.result = None
         self.data   = data
@@ -557,6 +572,12 @@ class FilterWindow(ctk.CTkToplevel):
         self.field_type_label.pack(pady=(2, 0))
         self._update_field_type_hint()
 
+        # ── FIX: label de aviso para campos no numéricos ──────────
+        self.numeric_warn_label = ctk.CTkLabel(
+            self, text="",
+            font=ctk.CTkFont(size=11), text_color="#e74c3c")
+        self.numeric_warn_label.pack(pady=(0, 2))
+
         self.result_label = ctk.CTkLabel(self, text="",
                                           font=ctk.CTkFont(size=13),
                                           text_color="#00b894")
@@ -586,6 +607,7 @@ class FilterWindow(ctk.CTkToplevel):
 
     def _on_key_change(self, choice):
         self._update_field_type_hint()
+        self.numeric_warn_label.configure(text="")  # limpiar aviso al cambiar clave
 
     def _update_field_type_hint(self):
         key = self.key_combo.get()
@@ -606,6 +628,37 @@ class FilterWindow(ctk.CTkToplevel):
 
     def _update_op_tip(self, choice):
         self.op_tip_lbl.configure(text=self.OP_TIPS.get(choice, ""))
+        self.numeric_warn_label.configure(text="")  # limpiar aviso al cambiar operador
+
+    def _check_numeric_field(self, key: str, op: str) -> bool:
+        """
+        FIX: Comprueba si el campo parece numérico antes de aplicar
+        operadores 'mayor que' / 'menor que'.
+        Devuelve True si es seguro continuar, False si hay un problema
+        y ya ha mostrado el aviso al usuario.
+        """
+        if op not in ("mayor que", "menor que"):
+            return True
+
+        # Examinar una muestra de hasta 10 registros
+        non_numeric_found = False
+        for item in self.data[:10]:
+            if isinstance(item, dict) and key in item:
+                val = item[key]
+                if val is not None:
+                    try:
+                        float(val)
+                    except (TypeError, ValueError):
+                        non_numeric_found = True
+                        break
+
+        if non_numeric_found:
+            self.numeric_warn_label.configure(
+                text=f"⚠ '{key}' no parece numerico. El operador '{op}' puede no dar resultados.")
+            return True  # Permitir continuar pero con aviso visible
+
+        self.numeric_warn_label.configure(text="")
+        return True
 
     def _apply_filter(self):
         key = self.key_combo.get()
@@ -616,13 +669,23 @@ class FilterWindow(ctk.CTkToplevel):
             messagebox.showwarning("Sin clave", "Selecciona una clave valida.")
             return None
 
+        # FIX: Validar valor numérico con mensaje claro
         if op in ("mayor que", "menor que"):
+            if not val.strip():
+                messagebox.showwarning("Valor requerido",
+                    f"El operador '{op}' requiere un numero.\nEl campo de valor esta vacio.")
+                return None
             try:
                 float(val)
             except ValueError:
                 messagebox.showwarning("Valor invalido",
-                    f"El operador '{op}' requiere un numero.\nValor introducido: '{val}'")
+                    f"El operador '{op}' requiere un numero valido.\n"
+                    f"Valor introducido: '{val}'\n\n"
+                    f"Ejemplo de valores validos: 42, 3.14, -10")
                 return None
+
+        # Comprobar si el campo es numérico y mostrar aviso si no lo parece
+        self._check_numeric_field(key, op)
 
         out = []
         for item in self.data:
@@ -637,10 +700,10 @@ class FilterWindow(ctk.CTkToplevel):
             elif op == "termina con": m = ivs.lower().endswith(val.lower())
             elif op == "mayor que":
                 try:    m = float(iv) > float(val)
-                except Exception: m = False
+                except (TypeError, ValueError): m = False
             elif op == "menor que":
                 try:    m = float(iv) < float(val)
-                except Exception: m = False
+                except (TypeError, ValueError): m = False
             elif op == "existe":      m = key in item
             if m:
                 out.append(item)
@@ -705,17 +768,12 @@ class JsonHighlightText(tk.Frame):
         "sb_active": "#888888",
     }
 
-    # ── Límite interno del tokenizador de resaltado ───────────────
-    # El resaltado token-a-token es costoso para bloques muy grandes.
-    # Por encima de este umbral se muestra el texto sin color (plain).
-    _HIGHLIGHT_CHAR_LIMIT = 40_000  # ~40 KB → resaltado completo
-    # Por encima de este umbral adicional se corta directamente aquí
-    # (defensa en profundidad; el truncado principal ocurre en _set_preview)
-    _WIDGET_CHAR_LIMIT = 120_000    # ~120 KB → límite absoluto del widget
+    _HIGHLIGHT_CHAR_LIMIT = 40_000
+    _WIDGET_CHAR_LIMIT    = 120_000
 
     def __init__(self, master, height=270, font=None, **kwargs):
         super().__init__(master, **kwargs)
-        self._font = font or ("Consolas", 11)
+        self._font    = font or ("Consolas", 11)
         self._palette = self.DARK
 
         self.configure(bg=self._palette["bg"])
@@ -757,30 +815,33 @@ class JsonHighlightText(tk.Frame):
 
     def _apply_scrollbar_style(self):
         p = self._palette
-        self._vsb_style.configure(
-            "JsonMerger.Vertical.TScrollbar",
-            background=p["sb_fg"],
-            troughcolor=p["sb_bg"],
-            bordercolor=p["sb_bg"],
-            arrowcolor=p["sb_fg"],
-            relief="flat",
-        )
-        self._vsb_style.configure(
-            "JsonMerger.Horizontal.TScrollbar",
-            background=p["sb_fg"],
-            troughcolor=p["sb_bg"],
-            bordercolor=p["sb_bg"],
-            arrowcolor=p["sb_fg"],
-            relief="flat",
-        )
-        self._vsb_style.map(
-            "JsonMerger.Vertical.TScrollbar",
-            background=[("active", p["sb_active"]), ("!active", p["sb_fg"])],
-        )
-        self._vsb_style.map(
-            "JsonMerger.Horizontal.TScrollbar",
-            background=[("active", p["sb_active"]), ("!active", p["sb_fg"])],
-        )
+        # Estilo moderno tipo CTkScrollableFrame:
+        # thumb fino (8px), flechas invisibles, sin relieve ni bordes visibles.
+        # El color del thumb y del trough responden correctamente al cambio de tema.
+        for name in ("JsonMerger.Vertical.TScrollbar",
+                     "JsonMerger.Horizontal.TScrollbar"):
+            self._vsb_style.configure(
+                name,
+                background=p["sb_fg"],       # color del thumb
+                troughcolor=p["sb_bg"],      # canal de fondo
+                bordercolor=p["sb_bg"],      # borde = fondo -> invisible
+                arrowcolor=p["sb_bg"],       # flechas = fondo -> invisibles
+                arrowsize=0,                 # sin flechas
+                relief="flat",
+                borderwidth=0,
+                width=8,                     # thumb estrecho como en CTk
+            )
+            self._vsb_style.map(
+                name,
+                background=[
+                    ("active",  p["sb_active"]),   # hover/arrastre
+                    ("!active", p["sb_fg"]),
+                ],
+                troughcolor=[
+                    ("active",  p["sb_bg"]),
+                    ("!active", p["sb_bg"]),
+                ],
+            )
 
     def _define_tags(self):
         p = self._palette
@@ -789,7 +850,6 @@ class JsonHighlightText(tk.Frame):
         self._text.tag_configure("number",    foreground=p["number"])
         self._text.tag_configure("bool_null", foreground=p["bool_null"])
         self._text.tag_configure("punct",     foreground=p["punct"])
-        # Tag especial para el aviso de truncado
         self._text.tag_configure("truncate_notice",
                                  foreground="#f39c12",
                                  font=(self._font[0], self._font[1], "italic"))
@@ -834,7 +894,6 @@ class JsonHighlightText(tk.Frame):
             self._text.configure(state="disabled")
             return
 
-        # Límite absoluto del widget (defensa en profundidad)
         if len(text) > self._WIDGET_CHAR_LIMIT:
             text = text[:self._WIDGET_CHAR_LIMIT] + \
                    "\n\n// [Widget: texto recortado a 120 KB para evitar bloqueo]"
@@ -842,20 +901,12 @@ class JsonHighlightText(tk.Frame):
         self._insert_highlighted(text)
 
     def _insert_highlighted(self, text: str):
-        """
-        Inserta el texto aplicando colores.
-        Si el texto supera _HIGHLIGHT_CHAR_LIMIT se omite el resaltado
-        y se inserta como texto plano para evitar bloqueos.
-        Los comentarios de aviso (líneas que empiezan con //) se colorean
-        siempre en naranja independientemente del tamaño.
-        """
         import re
 
         self._text.configure(state="normal")
         self._text.delete("1.0", "end")
 
         if len(text) > self._HIGHLIGHT_CHAR_LIMIT:
-            # Inserción rápida: texto plano + aviso en naranja si hay comentarios
             lines = text.split("\n")
             for line in lines:
                 stripped = line.lstrip()
@@ -866,7 +917,6 @@ class JsonHighlightText(tk.Frame):
             self._text.configure(state="disabled")
             return
 
-        # Tokenizador JSON con regex (solo para textos pequeños/medianos)
         TOKEN_RE = re.compile(
             r'("(?:[^"\\]|\\.)*")'
             r'|(\btrue\b|\bfalse\b|\bnull\b)'
@@ -879,7 +929,7 @@ class JsonHighlightText(tk.Frame):
         context_stack = []
 
         for m in TOKEN_RE.finditer(text):
-            s = m.group(0)
+            s   = m.group(0)
             tag = None
 
             if m.group(1):
@@ -888,7 +938,6 @@ class JsonHighlightText(tk.Frame):
                 if after.startswith(":") and context_stack and context_stack[-1] == "object":
                     tag = "key"
                 else:
-                    # Colorear comentarios de aviso dentro del JSON
                     if s.startswith('"//'):
                         tag = "truncate_notice"
                     else:
@@ -910,7 +959,6 @@ class JsonHighlightText(tk.Frame):
             if tag:
                 self._text.insert("end", s, tag)
             else:
-                # Colorear líneas de comentario planas (fuera del JSON)
                 stripped = s.lstrip()
                 if stripped.startswith("//"):
                     self._text.insert("end", s, "truncate_notice")
@@ -924,55 +972,36 @@ class JsonHighlightText(tk.Frame):
 # SELECTOR DE ARRAY ANIDADO
 # ================================================================
 class NestedArraySelector(ctk.CTkToplevel):
-    """
-    Se abre cuando el usuario pulsa Filtrar o Deduplicar sobre un objeto
-    JSON anidado en vez de un array plano.
-    Escanea el JSON buscando todas las claves que contienen listas,
-    las muestra con su ruta y número de elementos, y devuelve el array
-    elegido para pasarlo directamente a Filtrar / Deduplicar.
-    """
-
     def __init__(self, parent, data: dict):
         super().__init__(parent)
         self.title("Seleccionar datos")
         self.geometry("520x480")
         self.resizable(False, False)
-        self.result      = None   # array elegido por el usuario
-        self.result_path = None   # ruta legible, ej: "cities → districts"
+        self.result      = None
+        self.result_path = None
         self._data       = data
-        self._arrays     = {}     # ruta_str -> lista_acumulada de registros
+        self._arrays     = {}
 
         self._scan(data, path=[])
         self.after(50, self._bring_to_front)
         self._build_ui()
 
-    # ── Escaneo recursivo de arrays ───────────────────────────────
     def _scan(self, obj, path: list, depth: int = 0):
-        """
-        Recorre el objeto en profundidad agrupando arrays por ruta.
-        Todos los arrays que comparten la misma ruta (ej: todos los
-        'subdistricts' de distintos estados) se acumulan en una sola
-        entrada, dando el total real de registros.
-        self._arrays es un dict: ruta_str -> lista_acumulada
-        """
-        if depth > 8:   # evitar recursión infinita en JSONs muy profundos
+        if depth > 8:
             return
         if isinstance(obj, dict):
             for key, val in obj.items():
                 if isinstance(val, list) and val:
-                    # Solo nos interesan listas que contienen objetos (dicts)
                     if any(isinstance(item, dict) for item in val):
                         ruta = " → ".join(path + [key])
                         if ruta not in self._arrays:
                             self._arrays[ruta] = []
                         self._arrays[ruta].extend(val)
-                    # Seguir bajando por todos los elementos
                     for item in val:
                         self._scan(item, path + [key], depth + 1)
                 elif isinstance(val, dict):
                     self._scan(val, path + [key], depth + 1)
 
-    # ── Interfaz ──────────────────────────────────────────────────
     def _build_ui(self):
         ctk.CTkLabel(self,
                      text="Este archivo tiene datos anidados",
@@ -992,18 +1021,16 @@ class NestedArraySelector(ctk.CTkToplevel):
                           fg_color="#7f8c8d", hover_color="#636e72").pack(pady=10)
             return
 
-        # ── Marco scrollable con las opciones ─────────────────────
         scroll = ctk.CTkScrollableFrame(self, height=280)
         scroll.pack(padx=30, fill="x", expand=False)
 
         self._radio_var = ctk.StringVar(value="0")
-        self._radio_map = {}   # índice_str → (ruta, array)
+        self._radio_map = {}
 
         for i, (ruta, arr) in enumerate(self._arrays.items()):
             idx_str = str(i)
             self._radio_map[idx_str] = (ruta, arr)
 
-            # Calcular campos del primer elemento para dar contexto
             sample    = arr[0] if arr else {}
             campos    = list(sample.keys()) if isinstance(sample, dict) else []
             campos_str = ", ".join(campos[:4])
@@ -1029,7 +1056,6 @@ class NestedArraySelector(ctk.CTkToplevel):
                 text_color="#a0a0a0"
             ).pack(anchor="w", padx=28, pady=(0, 10))
 
-        # ── Botones ────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=18, padx=30, fill="x")
 
@@ -1051,7 +1077,7 @@ class NestedArraySelector(ctk.CTkToplevel):
         idx = self._radio_var.get()
         if idx not in self._radio_map:
             return
-        ruta, arr = self._radio_map[idx]
+        ruta, arr        = self._radio_map[idx]
         self.result      = arr
         self.result_path = ruta
         self.destroy()
@@ -1071,15 +1097,14 @@ class JSONMergerApp(ctk.CTk):
         self.geometry("1140x900")
         self.minsize(900, 700)
         self.resizable(True, True)
-        self.files: list       = []
+        self.files: list        = []
         self.invalid_files: set = set()
-        self.pending_data      = None
-        self._dark_mode        = True
+        self.pending_data       = None
+        self._dark_mode         = True
         self.create_widgets()
 
-    # ── Límites del preview ───────────────────────────────────────
-    MAX_PREVIEW_LINES = 500     # líneas máximas mostradas en el panel
-    MAX_PREVIEW_CHARS = 80_000  # caracteres máximos (protección extra)
+    MAX_PREVIEW_LINES = 500
+    MAX_PREVIEW_CHARS = 80_000
 
     # ── Construccion de la interfaz ───────────────────────────────
     def create_widgets(self):
@@ -1232,7 +1257,7 @@ class JSONMergerApp(ctk.CTk):
                           command=self.reset_pending, height=38, width=165,
                           fg_color="#7f8c8d", hover_color="#636e72")
         b.pack(side="left", padx=6)
-        tip(b, "Descarta el filtro o deduplicacion activos\ny vuelve a los datos originales.")
+        tip(b, "Descarta el filtro o deduplicacion activos\ny vuelve a los datos originales completos.")
 
         self.pending_label = ctk.CTkLabel(tools, text="",
                                           font=ctk.CTkFont(size=12),
@@ -1267,14 +1292,13 @@ class JSONMergerApp(ctk.CTk):
         b.pack(side="left", padx=8, expand=True, fill="x")
         tip(b, "Exporta el resultado a .csv compatible con\nExcel y Google Sheets.\nSolo funciona con arrays de objetos planos.")
 
-        # ── Panel de vista previa ─────────────────────────────────
+        # ── Panel de vista previa (SIN tooltip — eliminado) ───────
         preview_header = ctk.CTkFrame(self, fg_color="transparent")
         preview_header.pack(anchor="w", padx=55, pady=(8, 2), fill="x")
 
         pl = ctk.CTkLabel(preview_header, text="Vista previa",
                           font=ctk.CTkFont(size=15, weight="bold"))
         pl.pack(side="left")
-        tip(pl, "Muestra el contenido del archivo seleccionado\no el resultado final. Resaltado de sintaxis JSON.")
 
         self.preview_limit_label = ctk.CTkLabel(
             preview_header,
@@ -1283,6 +1307,7 @@ class JSONMergerApp(ctk.CTk):
             text_color="#6c7086")
         self.preview_limit_label.pack(side="left", padx=(12, 0))
 
+        # ── FIX: tooltip eliminado del panel de preview ───────────
         self.preview_text = JsonHighlightText(
             self,
             height=270,
@@ -1292,11 +1317,7 @@ class JSONMergerApp(ctk.CTk):
             borderwidth=0,
         )
         self.preview_text.pack(pady=8, padx=55, fill="both", expand=True)
-        tip(self.preview_text,
-            "Panel de solo lectura con resaltado de sintaxis.\n"
-            "Azul = claves, Verde = strings, Naranja = numeros,\n"
-            "Violeta = true/false/null, Gris = puntuacion.\n"
-            "Naranja italica = aviso de truncado.")
+        # (tooltip eliminado intencionalmente — no es necesario aquí)
 
     # ── Ventana Acerca de ─────────────────────────────────────────
     def open_about(self):
@@ -1323,15 +1344,50 @@ class JSONMergerApp(ctk.CTk):
         self.update_list()
         self.preview_text.set_theme(self._dark_mode)
 
+    # ── FIX: Lectura de archivo con fallback de encoding ─────────
+    def _load_json_file(self, path: str):
+        """
+        Intenta leer un archivo JSON probando varios encodings en orden.
+        Devuelve el objeto Python parseado o lanza excepción si falla todo.
+        """
+        encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252"]
+        last_err  = None
+        for enc in encodings:
+            try:
+                with open(path, "r", encoding=enc) as f:
+                    return json.load(f)
+            except UnicodeDecodeError:
+                last_err = Exception(f"No se pudo decodificar con {enc}")
+                continue
+            except json.JSONDecodeError as e:
+                # Caso especial: un archivo UTF-8 con BOM produce JSONDecodeError
+                # en lugar de UnicodeDecodeError — intentar con utf-8-sig
+                if "BOM" in str(e) and enc == "utf-8":
+                    last_err = e
+                    continue
+                raise e  # JSON realmente inválido → propagar
+        raise last_err
+
     # ── Validacion silenciosa ─────────────────────────────────────
     def _validate_file(self, path: str) -> tuple:
         ext_no_estandar = not path.lower().endswith(".json")
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                json.load(f)
+            self._load_json_file(path)
             return True, ext_no_estandar
         except Exception:
             return False, ext_no_estandar
+
+    # ── FIX: reset de pending_data al cargar nuevos archivos ──────
+    def _reset_pending_if_active(self):
+        """
+        Si hay un filtro/dedup activo cuando el usuario añade archivos,
+        lo resetea automáticamente y avisa, para evitar confusión.
+        """
+        if self.pending_data is not None:
+            self.pending_data = None
+            self.pending_label.configure(text="")
+            self.stats_label.configure(
+                text="⚠ Filtro/dedup reseteado al añadir nuevos archivos.")
 
     # ── Carga de archivos ─────────────────────────────────────────
     def select_files(self):
@@ -1343,9 +1399,10 @@ class JSONMergerApp(ctk.CTk):
         )
         if paths:
             nuevos = [p for p in paths if p not in self.files]
-            self.files.extend(nuevos)
-            self.update_list()
             if nuevos:
+                self._reset_pending_if_active()   # FIX
+                self.files.extend(nuevos)
+                self.update_list()
                 self.stats_label.configure(
                     text=f"{len(nuevos)} archivo(s) nuevo(s) aniadido(s)")
 
@@ -1360,10 +1417,12 @@ class JSONMergerApp(ctk.CTk):
                 "No se encontraron archivos JSON en esa carpeta.")
             return
         nuevos = [p for p in found if p not in self.files]
-        self.files.extend(nuevos)
-        self.update_list()
-        self.stats_label.configure(
-            text=f"Carpeta cargada: {len(nuevos)} archivos nuevos aniadidos")
+        if nuevos:
+            self._reset_pending_if_active()       # FIX
+            self.files.extend(nuevos)
+            self.update_list()
+            self.stats_label.configure(
+                text=f"Carpeta cargada: {len(nuevos)} archivos nuevos aniadidos")
 
     # ── Gestion de la lista ───────────────────────────────────────
     def update_list(self):
@@ -1409,7 +1468,8 @@ class JSONMergerApp(ctk.CTk):
                 text="Archivos cargados: 0 | Tamanio total: 0.00 KB")
             return
         total_kb = sum(
-            os.path.getsize(f) for f in self.files if os.path.exists(f)) / 1024
+            os.path.getsize(f) for f in self.files
+            if os.path.exists(f) and f not in self.invalid_files) / 1024
         n_invalid = len(self.invalid_files)
         if n_invalid:
             extra = f" | ⚠ {n_invalid} invalido(s)"
@@ -1473,8 +1533,7 @@ class JSONMergerApp(ctk.CTk):
             return
         path = self.files[sel[0]]
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data    = self._load_json_file(path)          # FIX: usa encoding robusto
             size_kb = os.path.getsize(path) / 1024
             if   isinstance(data, list): stat = f"Array | {len(data)} elementos | {size_kb:.1f} KB"
             elif isinstance(data, dict): stat = f"Objeto | {len(data)} claves | {size_kb:.1f} KB"
@@ -1490,29 +1549,21 @@ class JSONMergerApp(ctk.CTk):
 
     # ── Utilidades internas ───────────────────────────────────────
     def _set_preview(self, data):
-        """
-        Convierte data a JSON, trunca a MAX_PREVIEW_LINES / MAX_PREVIEW_CHARS
-        y muestra un aviso visible si se ha recortado.
-        El archivo guardado siempre contiene los datos completos.
-        """
         text  = json.dumps(data, indent=3, ensure_ascii=False)
         lines = text.splitlines()
         total_lines = len(lines)
         truncated   = False
 
-        # — Límite por líneas ——————————————————————————————————
         if total_lines > self.MAX_PREVIEW_LINES:
             lines     = lines[:self.MAX_PREVIEW_LINES]
             truncated = True
 
         truncated_text = "\n".join(lines)
 
-        # — Límite por caracteres (protección extra) ———————————
         if len(truncated_text) > self.MAX_PREVIEW_CHARS:
             truncated_text = truncated_text[:self.MAX_PREVIEW_CHARS]
             truncated      = True
 
-        # — Aviso de truncado en naranja ———————————————————————
         if truncated:
             truncated_text += (
                 f"\n\n"
@@ -1529,8 +1580,7 @@ class JSONMergerApp(ctk.CTk):
         for path in self.files:
             if path in self.invalid_files:
                 continue
-            with open(path, "r", encoding="utf-8") as f:
-                d = json.load(f)
+            d = self._load_json_file(path)               # FIX: usa encoding robusto
             if   isinstance(d, list): all_data.extend(d)
             elif isinstance(d, dict): all_data.append(d)
             else:                     all_data.append(d)
@@ -1568,6 +1618,17 @@ class JSONMergerApp(ctk.CTk):
                 + "\n".join(invalidos))
         try:
             data = self._get_data()
+
+            # FIX: mensaje claro si todos los archivos son inválidos
+            if not data and isinstance(data, list) and \
+               len(self.invalid_files) == len(self.files):
+                messagebox.showerror(
+                    "Sin datos validos",
+                    "Todos los archivos cargados son invalidos.\n"
+                    "No hay datos que previsualizar.\n\n"
+                    "Por favor, carga al menos un archivo JSON valido.")
+                return
+
             self._set_preview(data)
             n    = len(data) if isinstance(data, (list, dict)) else 1
             tipo = ("elementos" if isinstance(data, list)
@@ -1583,6 +1644,16 @@ class JSONMergerApp(ctk.CTk):
         if not self.files:
             messagebox.showwarning("Advertencia", "No hay archivos para unir")
             return
+
+        # FIX: mensaje claro si todos los archivos son inválidos
+        if len(self.invalid_files) == len(self.files):
+            messagebox.showerror(
+                "Sin datos validos",
+                "Todos los archivos cargados son invalidos.\n"
+                "No hay nada que guardar.\n\n"
+                "Por favor, carga al menos un archivo JSON valido.")
+            return
+
         if self.invalid_files:
             invalidos = [os.path.basename(p) for p in self.invalid_files]
             if not messagebox.askyesno(
@@ -1669,9 +1740,11 @@ class JSONMergerApp(ctk.CTk):
             messagebox.showwarning("Vacio", "No hay archivos cargados")
             return
         try:
-            base = self._get_data()
+            # Siempre trabajar sobre los datos originales (sin pending) para el
+            # selector de array anidado. Así el usuario siempre ve la estructura
+            # completa, no solo los datos ya filtrados/deduplicados.
+            base = self._build_merged_data()
 
-            # ── Si es un objeto anidado, ofrecer selector de nivel ──
             if isinstance(base, dict):
                 sel = NestedArraySelector(self, base)
                 sel.lift()
@@ -1712,9 +1785,11 @@ class JSONMergerApp(ctk.CTk):
             messagebox.showwarning("Vacio", "No hay archivos cargados")
             return
         try:
-            base = self._get_data()
+            # Siempre trabajar sobre los datos originales (sin pending) para el
+            # selector de array anidado. Así el usuario siempre ve la estructura
+            # completa, no solo los datos ya filtrados/deduplicados.
+            base = self._build_merged_data()
 
-            # ── Si es un objeto anidado, ofrecer selector de nivel ──
             if isinstance(base, dict):
                 sel = NestedArraySelector(self, base)
                 sel.lift()
