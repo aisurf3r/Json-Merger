@@ -30,6 +30,8 @@ Requiere **Python 3.8 o superior**. Las dependencias se instalan automáticament
 ```bash
 python json_merger_pro.py
 ```
+<img width="551" height="439" alt="{15E700BE-717A-4215-B65B-9A5B7C7AEE85}" src="https://github.com/user-attachments/assets/6aed8212-64bb-44f4-8151-36d43bcc87d5" />
+
 
 Si la instalación automática falla (sin conexión o permisos restringidos), instala manualmente:
 
@@ -41,7 +43,7 @@ pip install customtkinter pyperclip
 
 ## Carga de archivos
 
-Hay 2res formas de cargar archivos:
+Hay 2 formas de cargar archivos:
 
 **Seleccionar Archivos** — abre el explorador y permite elegir uno o varios `.json` a la vez. También acepta cualquier otro formato de texto que contenga JSON válido.
 
