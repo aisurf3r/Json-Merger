@@ -3,6 +3,7 @@
 > **Fusiona, filtra y limpia archivos JSON sin escribir una sola línea de código.**
 
 Herramienta de escritorio para combinar múltiples archivos JSON, filtrar registros por condiciones, eliminar duplicados y exportar a CSV — todo desde una interfaz visual.
+
 <img width="1920" height="1080" alt="{24E12D04-E2C6-4777-95D0-A33AB1ADA3BB}" src="https://github.com/user-attachments/assets/b7726f20-4e37-4388-a5d5-e0821b62960c" />
 ---
 
@@ -23,6 +24,7 @@ Herramienta de escritorio para combinar múltiples archivos JSON, filtrar regist
 
 ## ⚙️ Instalación
 <img width="551" height="439" alt="{15E700BE-717A-4215-B65B-9A5B7C7AEE85}" src="https://github.com/user-attachments/assets/6aed8212-64bb-44f4-8151-36d43bcc87d5" />
+
 Requiere **Python 3.8 o superior**. Las dependencias se instalan automáticamente al ejecutar la app por primera vez.
 
 ```bash
